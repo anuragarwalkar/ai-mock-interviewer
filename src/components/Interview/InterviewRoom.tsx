@@ -14,18 +14,24 @@ import { LiveCaptions } from './LiveCaptions';
 import { TranscriptSidebar } from './TranscriptSidebar';
 import { NotesPad } from './NotesPad';
 import { TextAnswerModal } from './TextAnswerModal';
+import { ShowAnswerModal } from './ShowAnswerModal';
+import { ThemeToggle } from '../Common/ThemeToggle';
 import { ListCollapse, StickyNote } from 'lucide-react';
 
 interface InterviewRoomProps {
   config: InterviewConfig;
   onFinishInterview: (report: EvaluationReport) => void;
   onCancel: () => void;
+  theme: 'dark' | 'light';
+  onToggleTheme: () => void;
 }
 
 export const InterviewRoom: React.FC<InterviewRoomProps> = ({
   config,
   onFinishInterview,
-  onCancel: _onCancel
+  onCancel: _onCancel,
+  theme,
+  onToggleTheme
 }) => {
   const persona = INTERVIEWER_PERSONAS.find(p => p.id === config.interviewerId) || INTERVIEWER_PERSONAS[0];
 
@@ -48,6 +54,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
+  const [isShowAnswerOpen, setIsShowAnswerOpen] = useState(false);
 
   const silenceTimeoutRef = useRef<any>(null);
 
@@ -59,8 +66,8 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
     speechService.speak(text, {
       pitch: persona.voicePitch,
       rate: persona.voiceRate,
-      voiceGender: persona.voiceGender,
-      preferredVoiceName: persona.speechVoiceName,
+      persona: persona,
+      apiKey: config.apiKey,
       onStart: () => {
         setIsInterviewerSpeaking(true);
       },
@@ -212,8 +219,8 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         await speechService.speak(nextTurn.responseText, {
           pitch: persona.voicePitch,
           rate: persona.voiceRate,
-          voiceGender: persona.voiceGender,
-          preferredVoiceName: persona.speechVoiceName
+          persona: persona,
+          apiKey: config.apiKey
         });
         setIsInterviewerSpeaking(false);
 
@@ -225,6 +232,134 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
       }
     } catch (err) {
       console.error('Error generating next turn:', err);
+      setIsGeneratingResponse(false);
+      if (isMicActive) startListeningCandidate();
+    }
+  };
+
+  // Candidate clicks "Let Interviewer Explain & Next" from Don't Know Answer modal
+  const handleExplainAndProceed = async () => {
+    setIsShowAnswerOpen(false);
+    speechService.stopListening();
+    setIsCandidateSpeaking(false);
+
+    const explanationPrompt = "I'm not completely certain of the answer to this question. Could you briefly explain the core concept and then transition to our next question?";
+    setCandidateDraftText('');
+
+    const candidateMsg: InterviewMessage = {
+      id: `msg-${Date.now()}`,
+      role: 'candidate',
+      content: explanationPrompt,
+      timestamp: Date.now(),
+      questionNumber: currentQuestion
+    };
+
+    const updatedHistory = [...messages, candidateMsg];
+    setMessages(updatedHistory);
+    setIsGeneratingResponse(true);
+
+    try {
+      const nextTurn = await geminiService.generateNextTurn(
+        updatedHistory,
+        config,
+        currentQuestion,
+        totalQuestions
+      );
+
+      const aiMsg: InterviewMessage = {
+        id: `msg-${Date.now() + 1}`,
+        role: 'interviewer',
+        content: nextTurn.responseText,
+        timestamp: Date.now() + 1,
+        questionNumber: currentQuestion + 1,
+        isCurrentQuestion: !nextTurn.isClosing
+      };
+
+      const completeHistory = [...updatedHistory, aiMsg];
+      setMessages(completeHistory);
+      setIsGeneratingResponse(false);
+
+      if (nextTurn.isClosing || currentQuestion >= totalQuestions) {
+        setLastInterviewerSpokenText(nextTurn.responseText);
+        setIsInterviewerSpeaking(true);
+        await speechService.speak(nextTurn.responseText, {
+          pitch: persona.voicePitch,
+          rate: persona.voiceRate,
+          persona: persona,
+          apiKey: config.apiKey
+        });
+        setIsInterviewerSpeaking(false);
+        triggerFinalEvaluation(completeHistory);
+      } else {
+        setCurrentQuestion(prev => prev + 1);
+        speakInterviewer(nextTurn.responseText);
+      }
+    } catch (err) {
+      console.error('Error generating turn after explanation request:', err);
+      setIsGeneratingResponse(false);
+      if (isMicActive) startListeningCandidate();
+    }
+  };
+
+  // Candidate clicks "Skip Question"
+  const handleSkipQuestion = async () => {
+    setIsShowAnswerOpen(false);
+    speechService.stopListening();
+    setIsCandidateSpeaking(false);
+
+    const skipPrompt = "I don't know the answer to this question, let's skip it and proceed directly to the next question.";
+    setCandidateDraftText('');
+
+    const candidateMsg: InterviewMessage = {
+      id: `msg-${Date.now()}`,
+      role: 'candidate',
+      content: skipPrompt,
+      timestamp: Date.now(),
+      questionNumber: currentQuestion
+    };
+
+    const updatedHistory = [...messages, candidateMsg];
+    setMessages(updatedHistory);
+    setIsGeneratingResponse(true);
+
+    try {
+      const nextTurn = await geminiService.generateNextTurn(
+        updatedHistory,
+        config,
+        currentQuestion,
+        totalQuestions
+      );
+
+      const aiMsg: InterviewMessage = {
+        id: `msg-${Date.now() + 1}`,
+        role: 'interviewer',
+        content: nextTurn.responseText,
+        timestamp: Date.now() + 1,
+        questionNumber: currentQuestion + 1,
+        isCurrentQuestion: !nextTurn.isClosing
+      };
+
+      const completeHistory = [...updatedHistory, aiMsg];
+      setMessages(completeHistory);
+      setIsGeneratingResponse(false);
+
+      if (nextTurn.isClosing || currentQuestion >= totalQuestions) {
+        setLastInterviewerSpokenText(nextTurn.responseText);
+        setIsInterviewerSpeaking(true);
+        await speechService.speak(nextTurn.responseText, {
+          pitch: persona.voicePitch,
+          rate: persona.voiceRate,
+          persona: persona,
+          apiKey: config.apiKey
+        });
+        setIsInterviewerSpeaking(false);
+        triggerFinalEvaluation(completeHistory);
+      } else {
+        setCurrentQuestion(prev => prev + 1);
+        speakInterviewer(nextTurn.responseText);
+      }
+    } catch (err) {
+      console.error('Error skipping question:', err);
       setIsGeneratingResponse(false);
       if (isMicActive) startListeningCandidate();
     }
@@ -260,19 +395,21 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
           </div>
           <div>
             <div className="text-white text-sm font-semibold flex items-center gap-2">
-              <span>{config.track} Mock Interview</span>
+              <span>{config.jobDescription ? config.jobDescription : `${config.seniority} Technical Interview`}</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
                 {config.seniority}
               </span>
             </div>
             <div className="text-slate-400 text-xs">
-              Interviewer: {persona.name} ({persona.companyVibe})
+              Interviewer: {persona.name} ({persona.title})
             </div>
           </div>
         </div>
 
         {/* Question Counter Pill & Sidebar Buttons */}
         <div className="flex items-center gap-2">
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+
           <div className="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-semibold">
             Question {Math.min(currentQuestion, totalQuestions)} of {totalQuestions}
           </div>
@@ -325,7 +462,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
               <div className="flex-1 min-h-[200px]">
                 <CandidateVideoFeed
                   candidateName={config.candidateName}
-                  targetRole={`${config.seniority} ${config.track}`}
+                  targetRole={config.jobDescription || `${config.seniority} Engineer`}
                   isMicActive={isMicActive}
                   isSpeaking={isCandidateSpeaking}
                   isVideoEnabled={isVideoActive}
@@ -378,6 +515,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
               onToggleNotes={() => setIsNotesOpen(prev => !prev)}
               onToggleTextMode={() => setIsTextModalOpen(true)}
               onSubmitAnswer={handleSubmitAnswer}
+              onDontKnowAnswer={() => setIsShowAnswerOpen(true)}
               onRepeatQuestion={handleRepeatQuestion}
               onEndInterview={() => triggerFinalEvaluation()}
             />
@@ -409,6 +547,18 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         onTextChange={setCandidateDraftText}
         onSubmit={handleSubmitAnswer}
         onClose={() => setIsTextModalOpen(false)}
+      />
+
+      {/* Don't Know Answer / Ideal Response Modal */}
+      <ShowAnswerModal
+        isOpen={isShowAnswerOpen}
+        questionNumber={Math.min(currentQuestion, totalQuestions)}
+        totalQuestions={totalQuestions}
+        questionText={messages.slice().reverse().find(m => m.role === 'interviewer')?.content || lastInterviewerSpokenText}
+        config={config}
+        onClose={() => setIsShowAnswerOpen(false)}
+        onExplainAndProceed={handleExplainAndProceed}
+        onSkipQuestion={handleSkipQuestion}
       />
     </div>
   );

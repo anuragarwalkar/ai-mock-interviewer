@@ -78,8 +78,16 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
             <h1 className="text-3xl font-extrabold text-white tracking-tight">
               {config.candidateName || 'Candidate'}'s Performance Scorecard
             </h1>
-            <p className="text-slate-400 text-sm mt-1">
-              Role: <span className="text-slate-200 font-medium">{config.seniority} {config.track}</span>
+            <p className="text-slate-400 text-sm mt-1 flex flex-wrap items-center gap-x-2">
+              <span>Role: <strong className="text-slate-200 font-medium">{config.seniority} {config.track}</strong></span>
+              <span>•</span>
+              <span>Style: <strong className="text-emerald-400 font-medium">
+                {config.questionStyle === 'direct-technical' ? 'Direct Technical Q&A' :
+                 config.questionStyle === 'scenario-based' ? 'Scenario-Based' :
+                 config.questionStyle === 'behavioral' ? 'Behavioral' : 'Mixed'}
+              </strong></span>
+              <span>•</span>
+              <span>Length: <strong className="text-slate-200 font-medium">{config.format}</strong></span>
             </p>
           </div>
 

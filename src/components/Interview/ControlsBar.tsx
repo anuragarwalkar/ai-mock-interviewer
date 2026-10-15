@@ -9,7 +9,8 @@ import {
   FileText, 
   Subtitles, 
   Keyboard, 
-  RotateCcw
+  RotateCcw,
+  HelpCircle
 } from 'lucide-react';
 
 interface ControlsBarProps {
@@ -27,6 +28,7 @@ interface ControlsBarProps {
   onToggleNotes: () => void;
   onToggleTextMode: () => void;
   onSubmitAnswer: () => void;
+  onDontKnowAnswer: () => void;
   onRepeatQuestion: () => void;
   onEndInterview: () => void;
 }
@@ -46,6 +48,7 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({
   onToggleNotes,
   onToggleTextMode,
   onSubmitAnswer,
+  onDontKnowAnswer,
   onRepeatQuestion,
   onEndInterview
 }) => {
@@ -93,19 +96,30 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({
         </button>
       </div>
 
-      {/* Main Action: Done Answering & Submit */}
-      <div className="flex items-center gap-2">
+      {/* Main Actions: Done Answering & Don't Know Answer */}
+      <div className="flex items-center gap-2.5">
         <button
           onClick={onSubmitAnswer}
           disabled={isGeneratingResponse || isInterviewerSpeaking || !hasCandidateAnswer}
           className={`px-5 py-3 rounded-xl font-semibold text-sm flex items-center gap-2.5 transition-all shadow-lg ${
             hasCandidateAnswer && !isGeneratingResponse && !isInterviewerSpeaking
-              ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-emerald-500/25 animate-pulse'
+              ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-emerald-500/25 animate-pulse cursor-pointer'
               : 'bg-slate-800 border border-slate-700 text-slate-500 cursor-not-allowed'
           }`}
         >
           <Send className="w-4 h-4" />
           <span>{isGeneratingResponse ? 'Analyzing...' : 'Done Answering'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onDontKnowAnswer}
+          disabled={isGeneratingResponse || isInterviewerSpeaking}
+          className="px-4 py-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-amber-200 font-semibold text-sm flex items-center gap-2 transition-all shadow-lg hover:shadow-amber-500/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          title="See ideal answer and explanation if you don't know the answer"
+        >
+          <HelpCircle className="w-4 h-4 text-amber-400" />
+          <span>Don't Know Answer</span>
         </button>
       </div>
 

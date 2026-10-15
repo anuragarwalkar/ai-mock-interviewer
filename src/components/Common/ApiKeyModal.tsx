@@ -51,7 +51,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKey
         </div>
 
         <p className="text-xs text-slate-400">
-          Your API key is used directly from your browser to communicate with Gemini models via LangChain. It is never sent to any third-party server.
+          Your API key is used directly from your browser to communicate with official Gemini models. It is never sent to any third-party server.
         </p>
 
         <div className="space-y-3">
@@ -86,7 +86,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, onKey
             ) : (
               <Key className="w-3.5 h-3.5 text-amber-400" />
             )}
-            <span>{isTesting ? 'Verifying with LangChain...' : 'Test API Key'}</span>
+            <span>{isTesting ? 'Verifying with Gemini...' : 'Test API Key'}</span>
           </button>
 
           {status && (

@@ -1,15 +1,10 @@
 import { audioService } from './audio';
+import { geminiTtsService } from './geminiTts';
+import type { InterviewerPersona } from '../types/interview';
 
-// Type definitions for SpeechRecognition if not provided by browser types
 interface IWindowSpeech extends Window {
   SpeechRecognition?: any;
   webkitSpeechRecognition?: any;
-}
-
-export interface SpeechVoiceOption {
-  name: string;
-  lang: string;
-  gender?: 'male' | 'female';
 }
 
 class SpeechService {
@@ -17,9 +12,11 @@ class SpeechService {
   private isListening = false;
   private isSpeaking = false;
   private voices: SpeechSynthesisVoice[] = [];
+  private selectedVoiceName: string | null = null;
 
   constructor() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      this.selectedVoiceName = localStorage.getItem('selected_interview_voice') || null;
       this.loadVoices();
       window.speechSynthesis.onvoiceschanged = () => {
         this.loadVoices();
@@ -29,35 +26,131 @@ class SpeechService {
 
   private loadVoices() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      this.voices = window.speechSynthesis.getVoices();
+      const allVoices = window.speechSynthesis.getVoices();
+      if (allVoices.length > 0) {
+        this.voices = allVoices;
+      }
     }
   }
 
   public getAvailableVoices(): SpeechSynthesisVoice[] {
-    if (this.voices.length === 0 && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return [];
+    if (this.voices.length === 0) {
       this.voices = window.speechSynthesis.getVoices();
     }
     return this.voices;
   }
 
+  public getEnglishVoices(): SpeechSynthesisVoice[] {
+    const all = this.getAvailableVoices();
+    const english = all.filter(v => v.lang.startsWith('en'));
+    return english.sort((a, b) => {
+      const score = (v: SpeechSynthesisVoice) => {
+        const name = v.name.toLowerCase();
+        if (name.includes('natural') || name.includes('online')) return 50;
+        if (name.includes('enhanced') || name.includes('premium')) return 40;
+        if (name.includes('google')) return 35;
+        if (name.includes('samantha') || name.includes('daniel') || name.includes('victoria') || name.includes('alex')) return 30;
+        if (name.includes('compact')) return -10;
+        return 10;
+      };
+      return score(b) - score(a);
+    });
+  }
+
+  public setSelectedVoice(voiceName: string | null) {
+    this.selectedVoiceName = voiceName;
+    if (voiceName) {
+      localStorage.setItem('selected_interview_voice', voiceName);
+    } else {
+      localStorage.removeItem('selected_interview_voice');
+    }
+  }
+
+  public getSelectedVoiceName(): string | null {
+    return this.selectedVoiceName;
+  }
+
+  public getBestVoiceForPersona(persona?: InterviewerPersona): SpeechSynthesisVoice | undefined {
+    const englishVoices = this.getEnglishVoices();
+    if (englishVoices.length === 0) return undefined;
+
+    if (this.selectedVoiceName) {
+      const userVoice = englishVoices.find(v => v.name === this.selectedVoiceName);
+      if (userVoice) return userVoice;
+    }
+
+    if (persona?.voiceOptions && persona.voiceOptions.length > 0) {
+      for (const pref of persona.voiceOptions) {
+        const match = englishVoices.find(v => 
+          v.name.toLowerCase().includes(pref.toLowerCase())
+        );
+        if (match) return match;
+      }
+    }
+
+    if (persona?.voiceGender === 'female') {
+      const female = englishVoices.find(v => 
+        /samantha|victoria|karen|serena|ava|zoe|fiona|female|google uk english female/i.test(v.name)
+      );
+      if (female) return female;
+    } else {
+      const male = englishVoices.find(v => 
+        /daniel|oliver|alex|tom|george|david|male|google uk english male|google us english/i.test(v.name)
+      );
+      if (male) return male;
+    }
+
+    return englishVoices[0];
+  }
+
   /**
-   * Speak interviewer question or statement using SpeechSynthesis
+   * Speak interviewer text with authentic Gemini TTS or local fallback
    */
-  public speak(
+  public async speak(
     text: string,
     options: {
       pitch?: number;
       rate?: number;
-      voiceGender?: 'male' | 'female';
-      preferredVoiceName?: string;
+      persona?: InterviewerPersona;
+      apiKey?: string;
       onStart?: () => void;
       onEnd?: () => void;
       onError?: (err: any) => void;
     } = {}
   ): Promise<void> {
+    this.stopSpeaking();
+
+    const apiKey = options.apiKey || localStorage.getItem('gemini_api_key') || '';
+
+    // 1. Prioritize Gemini Native TTS API for 100% real human-like voice
+    if (apiKey) {
+      const voiceName = geminiTtsService.getGeminiVoiceForPersona(options.persona);
+      try {
+        const audioBuffer = await geminiTtsService.synthesizeSpeech(text, apiKey, voiceName);
+        if (audioBuffer) {
+          this.isSpeaking = true;
+          await geminiTtsService.playAudioBuffer(
+            audioBuffer,
+            () => {
+              this.isSpeaking = true;
+              options.onStart?.();
+            },
+            () => {
+              this.isSpeaking = false;
+              options.onEnd?.();
+            }
+          );
+          return;
+        }
+      } catch (err) {
+        console.warn('Gemini TTS failed, falling back to local speech synthesis:', err);
+      }
+    }
+
+    // 2. Fallback to high-quality browser SpeechSynthesis
     return new Promise((resolve) => {
       if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-        console.warn('SpeechSynthesis is not supported in this browser.');
         options.onStart?.();
         setTimeout(() => {
           options.onEnd?.();
@@ -66,46 +159,24 @@ class SpeechService {
         return;
       }
 
-      // Stop any existing speech
-      this.stopSpeaking();
+      const cleanedText = text
+        .replace(/[*_#`~[\]]/g, '')
+        .replace(/\n+/g, ' ')
+        .trim();
 
-      const utterance = new SpeechSynthesisUtterance(text);
+      const utterance = new SpeechSynthesisUtterance(cleanedText);
 
-      utterance.rate = options.rate ?? 1.0;
-      utterance.pitch = options.pitch ?? 1.0;
+      utterance.rate = options.rate ?? options.persona?.voiceRate ?? 0.98;
+      utterance.pitch = options.pitch ?? options.persona?.voicePitch ?? 1.0;
 
-      // Select suitable voice
-      const voices = this.getAvailableVoices();
-      if (voices.length > 0) {
-        let chosenVoice: SpeechSynthesisVoice | undefined;
-
-        if (options.preferredVoiceName) {
-          chosenVoice = voices.find(v => 
-            v.name.toLowerCase().includes(options.preferredVoiceName!.toLowerCase())
-          );
-        }
-
-        if (!chosenVoice) {
-          const englishVoices = voices.filter(v => v.lang.startsWith('en'));
-          if (options.voiceGender === 'female') {
-            chosenVoice = englishVoices.find(v => 
-              /samantha|victoria|karen|zira|google us english|female|fiona/i.test(v.name)
-            ) || englishVoices[0];
-          } else {
-            chosenVoice = englishVoices.find(v => 
-              /daniel|alex|george|david|google uk english male|male/i.test(v.name)
-            ) || englishVoices[1] || englishVoices[0];
-          }
-        }
-
-        if (chosenVoice) {
-          utterance.voice = chosenVoice;
-        }
+      const chosenVoice = this.getBestVoiceForPersona(options.persona);
+      if (chosenVoice) {
+        utterance.voice = chosenVoice;
       }
 
       utterance.onstart = () => {
         this.isSpeaking = true;
-        audioService.startSpeechModulation(options.rate || 1.0);
+        audioService.startSpeechModulation(utterance.rate);
         options.onStart?.();
       };
 
@@ -123,11 +194,14 @@ class SpeechService {
         resolve();
       };
 
-      window.speechSynthesis.speak(utterance);
+      setTimeout(() => {
+        window.speechSynthesis.speak(utterance);
+      }, 50);
     });
   }
 
   public stopSpeaking() {
+    geminiTtsService.stop();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -136,7 +210,7 @@ class SpeechService {
   }
 
   public getIsSpeaking(): boolean {
-    return this.isSpeaking;
+    return this.isSpeaking || geminiTtsService.getIsPlaying();
   }
 
   public isSpeechRecognitionSupported(): boolean {
@@ -154,9 +228,7 @@ class SpeechService {
       return false;
     }
 
-    if (this.isListening) {
-      return true;
-    }
+    if (this.isListening) return true;
 
     const win = window as IWindowSpeech;
     const SpeechRecClass = win.SpeechRecognition || win.webkitSpeechRecognition;
@@ -188,9 +260,7 @@ class SpeechService {
       };
 
       this.recognition.onerror = (event: any) => {
-        if (event.error === 'no-speech') {
-          return;
-        }
+        if (event.error === 'no-speech') return;
         console.warn('SpeechRecognition error:', event.error);
         onError?.(event.error);
       };
@@ -200,7 +270,7 @@ class SpeechService {
           try {
             this.recognition.start();
           } catch (e) {
-            // Already started or blocked
+            // Already active
           }
         }
       };

@@ -11,6 +11,12 @@ export type InterviewTrack =
 
 export type InterviewFormat = 'Standard (5-6 questions)' | 'Quick Screening (3 questions)' | 'Deep Dive (8 questions)';
 
+export type QuestionStyle = 
+  | 'direct-technical'
+  | 'scenario-based'
+  | 'behavioral'
+  | 'mixed';
+
 export interface InterviewerPersona {
   id: string;
   name: string;
@@ -21,7 +27,17 @@ export interface InterviewerPersona {
   voiceGender: 'male' | 'female';
   voicePitch: number;
   voiceRate: number;
-  speechVoiceName?: string;
+  imagePath: string;
+  thumbnailPath?: string;
+  geminiVoice?: string;
+  voiceOptions?: string[];
+  faceCoordinates: {
+    eyeLeft: [number, number]; // [x%, y%]
+    eyeRight: [number, number];
+    mouth: [number, number];
+    mouthWidth: number;
+    mouthHeight: number;
+  };
   description: string;
   specialtyTags: string[];
   systemPersonalityPrompt: string;
@@ -34,6 +50,7 @@ export interface InterviewConfig {
   track: InterviewTrack;
   seniority: SeniorityLevel;
   format: InterviewFormat;
+  questionStyle: QuestionStyle;
   interviewerId: string;
   resumeText: string;
   jobDescription: string;

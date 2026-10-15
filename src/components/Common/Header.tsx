@@ -29,7 +29,7 @@ export const Header: React.FC<HeaderProps> = ({
                 Gemini Interviewer
               </span>
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400">
-                LangChain
+                Gemini Audio & AI
               </span>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
